@@ -1,120 +1,77 @@
+local function NotifyCheat(type, value)
+    TriggerServerEvent("anti:cheatDetection", type, value)
+end
 
-local heartbeatInterval = 10000          
-local noclipSpeedThreshold = 15.0        
-local freecamDistanceThreshold = 25.0   
-local teleportThreshold = 50.0           
-local lastPos = nil
-local lastHeartbeat = GetGameTimer()
-
+-- Vérification du Noclip (vitesse anormale)
 Citizen.CreateThread(function()
-    while true do
-        Citizen.Wait(heartbeatInterval)
-        TriggerServerEvent("anti:heartbeat")
-    end
-end)
-
-Citizen.CreateThread(function()
+    local lastPos = GetEntityCoords(PlayerPedId())
     while true do
         Citizen.Wait(500)
         local ped = PlayerPedId()
-        if DoesEntityExist(ped) and not IsEntityDead(ped) then
-            local currentPos = GetEntityCoords(ped)
-            if lastPos then
-                local distance = #(currentPos - lastPos)
-                local speed = distance / 0.5  
-                if speed > noclipSpeedThreshold then
-                    TriggerServerEvent("anti:playerNoclip", speed)
-                end
-            end
-            lastPos = currentPos
+        local newPos = GetEntityCoords(ped)
+        local distance = #(newPos - lastPos)
+
+        if not IsPedInAnyVehicle(ped, false) and distance > 10.0 then -- Distance anormale (noclip ou TP)
+            NotifyCheat("noclip", distance)
         end
+
+        lastPos = newPos
     end
 end)
 
+-- Vérification de l'Invincibilité
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1000)
+        Citizen.Wait(3000) -- Vérifie toutes les 3 secondes
         local ped = PlayerPedId()
-        if DoesEntityExist(ped) and not IsEntityDead(ped) then
-            local pedPos = GetEntityCoords(ped)
-            local camPos = GetGameplayCamCoord()
-            local distance = #(camPos - pedPos)
-            if distance > freecamDistanceThreshold then
-                TriggerServerEvent("anti:freecamDetected", distance)
-            end
+        local health = GetEntityHealth(ped)
+
+        if health > 200 then
+            NotifyCheat("invincibility", health)
         end
     end
 end)
 
-RegisterNetEvent("anti:propSpawned")
-AddEventHandler("anti:propSpawned", function(propModel)
-    TriggerServerEvent("anti:propSpawned", propModel)
-end)
-
+-- Vérification de l'Invisibilité
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1000)
+        Citizen.Wait(2000)
         local ped = PlayerPedId()
-        if IsPedDeadOrDying(ped, true) then
-            TriggerServerEvent("anti:reviveDetected", true)
+        local alpha = GetEntityAlpha(ped)
+
+        if alpha < 150 then -- Si l'opacité est inférieure à 150, suspect
+            NotifyCheat("invisibility", alpha)
         end
     end
 end)
 
+-- Détection de téléportation (déplacement rapide anormal)
 Citizen.CreateThread(function()
+    local lastPos = GetEntityCoords(PlayerPedId())
     while true do
         Citizen.Wait(1000)
-        if GetGameTimer() - lastHeartbeat > 15000 then  
-            TriggerServerEvent("anti:heartbeat", "missing")
+        local newPos = GetEntityCoords(PlayerPedId())
+        local distance = #(newPos - lastPos)
+
+        if distance > 50.0 then -- Se téléporter sur une grande distance
+            NotifyCheat("teleport", distance)
         end
+
+        lastPos = newPos
     end
 end)
 
+-- Détection du spawn de props (Objets non autorisés)
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(1000)
-        local ped = PlayerPedId()
-        if DoesEntityExist(ped) and not IsEntityDead(ped) then
-            local alpha = GetEntityAlpha(ped)
-            if alpha < 255 then
-                TriggerServerEvent("anti:invisibleDetected", alpha)
-            end
-            if IsPedInvincible(ped) then
-                TriggerServerEvent("anti:invincibleDetected")
+        Citizen.Wait(3000)
+        for _, entity in ipairs(GetGamePool("CObject")) do
+            local model = GetEntityModel(entity)
+            local owner = NetworkGetEntityOwner(entity)
+
+            if owner == PlayerId() then
+                NotifyCheat("prop_spawn", model)
             end
         end
-    end
-end)
-
--- Détection de la téléportation
-Citizen.CreateThread(function()
-    while true do
-        Citizen.Wait(1000)
-        local ped = PlayerPedId()
-        if DoesEntityExist(ped) and not IsEntityDead(ped) then
-            local currentPos = GetEntityCoords(ped)
-            if lastPos then
-                local distance = #(currentPos - lastPos)
-                if distance > teleportThreshold then
-                    TriggerServerEvent("anti:teleportDetected", distance)
-                end
-            end
-            lastPos = currentPos
-        end
-    end
-end)
-
--- Détection de l'arrêt de la ressource anti-cheat
-AddEventHandler("onClientResourceStop", function(resource)
-    if resource == GetCurrentResourceName() then
-        TriggerServerEvent("anti:resourceStopped", resource)
-    end
-end)
-
-AddEventHandler("onClientResourceStop", function(resource)
-    if resource == GetCurrentResourceName() then
-        Citizen.CreateThread(function()
-            while true do end
-        end)
     end
 end)
